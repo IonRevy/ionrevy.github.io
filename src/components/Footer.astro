@@ -1,0 +1,137 @@
+---
+import NewsletterSignup from './NewsletterSignup.astro';
+
+interface Props {
+  logoText: string;
+  socialLinks?: { label: string; url: string }[];
+  footerText?: string;
+  /** When set (News page enabled), shows a link to the RSS feed. */
+  rssHref?: string;
+  /** Footer email capture (newsletterInFooter). Off unless the artist turns it on. */
+  newsletter?: {
+    heading?: string;
+    blurb?: string;
+    provider?: 'netlify' | 'buttondown' | 'mailchimp' | 'convertkit';
+    actionUrl?: string;
+  } | null;
+  /** "Support me" links (Ko-fi, Patreon, PayPal.me…). Empty = nothing shows. */
+  supportLinks?: { label: string; url: string }[];
+}
+const { logoText, socialLinks = [], footerText, rssHref, newsletter = null, supportLinks = [] } = Astro.props;
+const year = new Date().getFullYear();
+---
+
+<footer class="ez-footer">
+  {supportLinks.length > 0 && (
+    <div class="ez-container ez-footer__support">
+      <span class="ez-footer__supportlabel">Support my work</span>
+      <ul class="ez-footer__supportlinks">
+        {supportLinks.map((link) => (
+          <li><a class="ez-footer__supportbtn" href={link.url} rel="noopener" target="_blank">{link.label}</a></li>
+        ))}
+      </ul>
+    </div>
+  )}
+  {newsletter && (
+    <div class="ez-container ez-footer__newsletter">
+      <NewsletterSignup
+        compact
+        formId="footer-newsletter"
+        heading={newsletter.heading}
+        blurb={newsletter.blurb}
+        provider={newsletter.provider}
+        actionUrl={newsletter.actionUrl}
+      />
+    </div>
+  )}
+  <div class="ez-container ez-footer__inner">
+    <div class="ez-footer__brand"><span>{logoText}</span></div>
+
+    {(socialLinks.length > 0 || rssHref) && (
+      <ul class="ez-footer__social">
+        {socialLinks.map((link) => (
+          <li>
+            <a href={link.url} rel="me noopener" target="_blank">{link.label}</a>
+          </li>
+        ))}
+        {rssHref && (
+          <li>
+            <a href={rssHref} rel="alternate">RSS</a>
+          </li>
+        )}
+      </ul>
+    )}
+
+    <p class="ez-footer__meta">
+      <span>© {year} {logoText}.</span>
+      <span class="ez-footer__text">{footerText ?? ''}</span>
+      <span class="ez-footer__credit">Made with <a href="https://usegesso.com" rel="noopener">Gesso</a>.</span>
+    </p>
+  </div>
+</footer>
+
+<style>
+  .ez-footer {
+    border-top: var(--ez-border-width) solid var(--ez-border);
+    margin-top: var(--ez-space-9);
+    background: var(--ez-white);
+  }
+  .ez-footer__inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ez-space-5);
+    padding-block: var(--ez-space-6);
+  }
+  .ez-footer__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ez-space-3);
+    font-family: var(--ez-font-display);
+    font-weight: 800;
+    margin-right: auto;
+  }
+  .ez-footer__social {
+    display: flex;
+    gap: var(--ez-space-4);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-weight: 700;
+  }
+  .ez-footer__meta {
+    margin: 0;
+    color: var(--ez-stone);
+    font-size: var(--ez-text-sm);
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .ez-footer__text:empty { display: none; }
+  .ez-footer__newsletter {
+    padding-block: var(--ez-space-6);
+    border-bottom: var(--ez-border-width) solid var(--ez-border);
+  }
+  .ez-footer__support {
+    padding-block: var(--ez-space-5);
+    border-bottom: var(--ez-border-width) solid var(--ez-border);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--ez-space-3) var(--ez-space-4);
+  }
+  .ez-footer__supportlabel { font-family: var(--ez-font-display); font-weight: 800; }
+  .ez-footer__supportlinks { display: flex; flex-wrap: wrap; gap: var(--ez-space-3); list-style: none; margin: 0; padding: 0; }
+  .ez-footer__supportbtn {
+    display: inline-block;
+    padding: var(--ez-space-2) var(--ez-space-4);
+    background: var(--ez-blue);
+    color: var(--ez-pill-available-text, #fff);
+    border-radius: var(--ez-radius);
+    font-family: var(--ez-font-display);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .ez-footer__supportbtn:hover { transform: translateY(-1px); }
+</style>

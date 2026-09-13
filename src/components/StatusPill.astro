@@ -1,0 +1,35 @@
+---
+/**
+ * StatusPill — the only fully-rounded element in the system. Color encodes the
+ * artwork's status (available=blue, sold=red, inquire=yellow, nfs=stone).
+ */
+import { type ArtworkStatus, STATUS_LABELS } from '../lib/status';
+
+interface Props {
+  status: ArtworkStatus;
+  class?: string;
+}
+const { status, class: className } = Astro.props;
+---
+
+<span class:list={['ez-pill', `ez-pill--${status}`, className]}>{STATUS_LABELS[status]}</span>
+
+<style>
+  .ez-pill {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--ez-font-display);
+    font-weight: 700;
+    font-size: var(--ez-text-xs);
+    letter-spacing: 0.02em;
+    line-height: 1;
+    padding: 0.4em 0.85em;
+    border: var(--ez-border-width) solid var(--ez-border);
+    border-radius: var(--ez-radius-pill); /* pills are the rounded exception */
+  }
+  /* Text color adapts per accent (computed in design.ts) so pills stay readable. */
+  .ez-pill--available { background: var(--ez-status-available); color: var(--ez-pill-available-text, #fff); }
+  .ez-pill--sold { background: var(--ez-status-sold); color: var(--ez-pill-sold-text, #fff); }
+  .ez-pill--inquire { background: var(--ez-status-inquire); color: var(--ez-pill-inquire-text, var(--ez-ink)); }
+  .ez-pill--nfs { background: var(--ez-status-nfs); color: var(--ez-pill-nfs-text, #fff); }
+</style>

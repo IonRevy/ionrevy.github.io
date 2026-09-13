@@ -1,0 +1,155 @@
+---
+import type { GetStaticPaths } from 'astro';
+import { getCollection, getEntry, render } from 'astro:content';
+import { getImage, Picture } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import ArtworkCard from '../components/ArtworkCard.astro';
+import Lightbox from '../components/Lightbox.astro';
+import { resolveDesign } from '../lib/design';
+import { FULL_WIDTHS, LIGHTBOX_SIZES } from '../lib/images';
+import { withBase, stripMd } from '../lib/href';
+
+// Astro 5 content-collection ids include the file extension; strip it for clean
+// URLs and for matching artwork series references.
+export const getStaticPaths = (async () => {
+  const series = await getCollection('collections');
+  return series.map((s) => ({
+    params: { collection: stripMd(s.id) },
+    props: { series: s },
+  }));
+}) satisfies GetStaticPaths;
+
+const { series } = Astro.props;
+const seriesSlug = stripMd(series.id);
+const settings = (await getEntry('site', 'settings'))!.data;
+const design = resolveDesign(settings.design as any);
+const linkToPage = design.gallery.click === 'page';
+
+const artworks = (await getCollection('artworks'))
+  .filter((a) => a.data.collection && stripMd(a.data.collection.id) === seriesSlug)
+  .sort((a, b) => a.data.order - b.data.order);
+
+// Only resolve full-size lightbox URLs when the gallery opens a lightbox; in
+// page-link mode the Lightbox never renders, so the transforms would be wasted.
+const lightboxItems = linkToPage
+  ? []
+  : await Promise.all(
+      artworks.map(async (a) => {
+        const img = await getImage({ src: a.data.image, widths: FULL_WIDTHS, sizes: LIGHTBOX_SIZES });
+        const meta = [a.data.year, a.data.medium, a.data.dimensions].filter(Boolean).join(' · ');
+        return { src: img.src, srcset: img.srcSet.attribute, alt: a.data.alt, title: a.data.title, meta };
+      })
+    );
+
+// Optional story header: a markdown intro, a tagline, and a cover. The full-bleed
+// hero only kicks in when the artist turns on storyLayout AND has set a cover.
+const { Content } = await render(series);
+const lede = series.data.lede;
+const cover = series.data.cover;
+const hasIntro = !!series.body?.trim();
+const heroLayout = !!series.data.storyLayout && !!cover;
+---
+
+<Base pageTitle={series.data.title} pageDescription={series.data.description} pageImage={withBase(`/og/series-${seriesSlug}.png`)}>
+  {heroLayout && (
+    <section class="ez-series-hero">
+      <Picture src={cover} alt={series.data.title} formats={['avif', 'webp']} widths={[768, 1280, 1920]} sizes="100vw" loading="eager" fetchpriority="high" class="ez-series-hero__img" />
+      <div class="ez-series-hero__cap">
+        <h1 class="ez-series-hero__title">{series.data.title}</h1>
+        {lede && <p class="ez-series-hero__lede">{lede}</p>}
+      </div>
+    </section>
+  )}
+  <div class="ez-container">
+    <p class="ez-back"><a href={withBase('/')}>← All work</a></p>
+    {!heroLayout && (
+      <header class="ez-series-head">
+        {cover && (
+          <Picture src={cover} alt={series.data.title} formats={['avif', 'webp']} widths={[480, 960]} sizes="(max-width: 700px) 100vw, 700px" loading="eager" fetchpriority="high" class="ez-series-head__img" />
+        )}
+        <h1>{series.data.title}</h1>
+        {lede && <p class="ez-series-lede">{lede}</p>}
+      </header>
+    )}
+    {series.data.description && <p class="ez-series-desc">{series.data.description}</p>}
+    {hasIntro && (
+      <div class="ez-series-intro"><Content /></div>
+    )}
+
+    <div class="ez-portfolio">
+      {artworks.map((a, i) => (
+        <ArtworkCard
+          image={a.data.image}
+          title={a.data.title}
+          alt={a.data.alt}
+          year={a.data.year}
+          medium={a.data.medium}
+          dimensions={a.data.dimensions}
+          price={a.data.price}
+          status={a.data.status}
+          index={i}
+          href={linkToPage ? withBase(`/work/${stripMd(a.id)}/`) : undefined}
+          hasVideo={!!a.data.video}
+          hasAudio={!!a.data.audio}
+          protected={a.data.protected}
+        />
+      ))}
+    </div>
+  </div>
+
+  {!linkToPage && <Lightbox items={lightboxItems} />}
+</Base>
+
+<style>
+  .ez-back { margin-bottom: var(--ez-space-4); font-weight: 700; }
+  .ez-series-desc {
+    color: var(--ez-stone);
+    font-size: var(--ez-text-lg);
+    max-width: var(--ez-prose-max);
+    margin-bottom: var(--ez-space-7);
+  }
+  .ez-series-head { margin-bottom: var(--ez-space-5); }
+  .ez-series-head__img {
+    width: 100%;
+    height: auto;
+    max-height: 22rem;
+    object-fit: cover;
+    border: var(--ez-border-width) solid var(--ez-border);
+    margin-bottom: var(--ez-space-5);
+  }
+  .ez-series-lede {
+    color: var(--ez-stone);
+    font-size: var(--ez-text-lg);
+    margin: var(--ez-space-2) 0 0;
+  }
+  /* Full-bleed story hero: cover spans the viewport with the title overlaid. */
+  .ez-series-hero {
+    position: relative;
+    width: 100%;
+    max-height: 70vh;
+    overflow: hidden;
+    background: var(--ez-ink);
+  }
+  .ez-series-hero__img {
+    width: 100%;
+    height: 100%;
+    max-height: 70vh;
+    object-fit: cover;
+    display: block;
+  }
+  .ez-series-hero__cap {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: var(--ez-space-7) var(--ez-space-5) var(--ez-space-5);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.65), transparent);
+    color: #fff;
+  }
+  .ez-series-hero__title { margin: 0; color: #fff; }
+  .ez-series-hero__lede { margin: var(--ez-space-2) 0 0; color: rgba(255, 255, 255, 0.9); }
+  .ez-series-intro {
+    max-width: var(--ez-prose-max);
+    margin: 0 0 var(--ez-space-7);
+    line-height: 1.7;
+  }
+  .ez-series-intro :global(p) { margin: 0 0 var(--ez-space-4); }
+</style>

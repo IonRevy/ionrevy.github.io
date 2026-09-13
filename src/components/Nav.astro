@@ -1,0 +1,140 @@
+---
+import { withBase } from '../lib/href';
+
+interface Props {
+  logoText: string;
+  logo?: { mode: 'none' | 'text' | 'image'; image?: string };
+  /** Show the Pagefind search box (assets built into /pagefind/). */
+  search?: boolean;
+}
+const { logoText, logo = { mode: 'none' }, search = false } = Astro.props;
+
+// Compare against base-aware hrefs — under a GitHub Pages subpath, Astro.url.pathname
+// includes the /<repo> base, so the raw '/about' wouldn't match.
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+// All links always render; disabled pages are hidden via a root class so the
+// editor can toggle them live. `key` matches the ez-page-<key>-off classes.
+const links = [
+  { href: '/', label: 'Work', key: 'work' },
+  // The gallery's own URL — shown only when the homepage is the about intro (CSS toggle).
+  { href: '/work', label: 'Work', key: 'workpage' },
+  { href: '/available', label: 'Available', key: 'available' },
+  { href: '/about', label: 'About', key: 'about' },
+  { href: '/cv', label: 'CV', key: 'cv' },
+  { href: '/press', label: 'Press', key: 'press' },
+  { href: '/exhibitions', label: 'Exhibitions', key: 'exhibitions' },
+  { href: '/news', label: 'News', key: 'news' },
+  { href: '/projects', label: 'Projects', key: 'projects' },
+  { href: '/press-kit', label: 'Press kit', key: 'presskit' },
+  { href: '/commissions', label: 'Commissions', key: 'commissions' },
+  { href: '/shop', label: 'Shop', key: 'shop' },
+  { href: '/stockists', label: 'Where to buy', key: 'stockists' },
+  { href: '/contact', label: 'Contact', key: 'contact' },
+];
+const isActive = (href: string) => {
+  const target = withBase(href).replace(/\/$/, '') || '/';
+  return target === '/' ? path === (withBase('/').replace(/\/$/, '') || '/') : path.startsWith(target);
+};
+---
+
+<header class="ez-nav">
+  <div class="ez-container ez-nav__inner">
+    <a href={withBase('/')} class="ez-nav__brand" aria-label={`${logoText} — home`}>
+      <img class="ez-nav__logoimg" src={logo.image || undefined} alt={logoText} />
+      <span class="ez-nav__logotext">{logoText}</span>
+    </a>
+
+    <nav aria-label="Primary">
+      <ul class="ez-nav__list">
+        {links.map((link) => (
+          <li class={`ez-pagelink-${link.key}`}>
+            <a
+              href={withBase(link.href)}
+              class:list={['ez-nav__link', { 'is-active': isActive(link.href) }]}
+              aria-current={isActive(link.href) ? 'page' : undefined}
+            >
+              {link.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    {search && <div id="ez-search" class="ez-nav__search"></div>}
+  </div>
+</header>
+
+<style>
+  .ez-nav { background: var(--ez-paper); border-bottom: var(--ez-border-width) solid var(--ez-border); }
+  .ez-nav__inner { display: flex; align-items: center; gap: var(--ez-space-5); padding-block: var(--ez-space-4); flex-wrap: wrap; }
+  .ez-nav__brand { display: inline-flex; align-items: center; gap: var(--ez-space-3); text-decoration: none; color: var(--ez-ink); margin-right: auto; }
+  .ez-nav__logotext { font-family: var(--ez-font-display); font-weight: var(--ez-heading-weight, 800); font-size: var(--ez-text-xl); letter-spacing: var(--ez-heading-spacing, -0.02em); text-transform: var(--ez-heading-transform, none); }
+  .ez-nav__logoimg { max-height: 44px; width: auto; }
+  /* Logo mode: show image or text (toggled live by the editor). */
+  :global(html.ez-logo-text) .ez-nav__logoimg { display: none; }
+  :global(html.ez-logo-image) .ez-nav__logotext { display: none; }
+  .ez-nav__list { display: flex; gap: var(--ez-space-5); list-style: none; margin: 0; padding: 0; }
+  .ez-nav__link { font-family: var(--ez-font-display); font-weight: 700; text-decoration: none; color: var(--ez-ink); padding-bottom: 2px; border-bottom: var(--ez-border-width) solid transparent; }
+  .ez-nav__link:hover { border-bottom-color: var(--ez-ink); }
+  .ez-nav__link.is-active { border-bottom-color: var(--ez-blue); color: var(--ez-blue); }
+
+  /* Pagefind search box — themed to the artist's design tokens. */
+  .ez-nav__search {
+    flex: 0 1 16rem;
+    min-width: 8rem;
+    --pagefind-ui-primary: var(--ez-blue);
+    --pagefind-ui-text: var(--ez-ink);
+    --pagefind-ui-background: var(--ez-white);
+    --pagefind-ui-border: var(--ez-border);
+    --pagefind-ui-font: var(--ez-font-body);
+    --pagefind-ui-border-radius: var(--ez-radius);
+    --pagefind-ui-border-width: var(--ez-border-width);
+  }
+  /* The results panel can be wide; let it overlay rather than push the layout. */
+  .ez-nav__search :global(.pagefind-ui__drawer) {
+    position: absolute;
+    z-index: 50;
+    right: var(--ez-space-5);
+    left: var(--ez-space-5);
+    background: var(--ez-white);
+    border: var(--ez-border-width) solid var(--ez-border);
+    padding: var(--ez-space-3);
+    max-height: 70vh;
+    overflow: auto;
+  }
+  .ez-nav { position: relative; }
+  @media (max-width: 640px) {
+    .ez-nav__search { flex-basis: 100%; order: 3; }
+  }
+
+  /* Hide pages turned off in the editor. */
+  :global(html.ez-page-about-off) .ez-pagelink-about,
+  :global(html.ez-page-contact-off) .ez-pagelink-contact,
+  :global(html.ez-page-cv-off) .ez-pagelink-cv,
+  :global(html.ez-page-press-off) .ez-pagelink-press,
+  :global(html.ez-page-exhibitions-off) .ez-pagelink-exhibitions,
+  :global(html.ez-page-news-off) .ez-pagelink-news,
+  :global(html.ez-page-projects-off) .ez-pagelink-projects,
+  :global(html.ez-page-available-off) .ez-pagelink-available,
+  :global(html.ez-page-presskit-off) .ez-pagelink-presskit,
+  :global(html.ez-page-commissions-off) .ez-pagelink-commissions,
+  :global(html.ez-page-shop-off) .ez-pagelink-shop,
+  :global(html.ez-page-stockists-off) .ez-pagelink-stockists { display: none; }
+
+  /* Landing route: default homepage is the gallery, so the gallery's own /work link
+     is redundant. When the homepage is the about intro, swap to the /work link and
+     drop the now-redundant About link (the landing already is About). */
+  :global(html.ez-home-work) .ez-pagelink-workpage { display: none; }
+  :global(html.ez-home-about) .ez-pagelink-work,
+  :global(html.ez-home-about) .ez-pagelink-about { display: none; }
+
+  /* Top layout: name on its own centered row, links centered below. */
+  :global(html.ez-nav-top) .ez-nav { position: relative; }
+  :global(html.ez-nav-top) .ez-nav__inner { flex-direction: column; align-items: center; gap: var(--ez-space-3); text-align: center; }
+  :global(html.ez-nav-top) .ez-nav__brand { margin-right: 0; }
+
+  @media (max-width: 640px) {
+    .ez-nav__inner { gap: var(--ez-space-3); }
+    .ez-nav__list { gap: var(--ez-space-4); font-size: var(--ez-text-sm); }
+  }
+</style>

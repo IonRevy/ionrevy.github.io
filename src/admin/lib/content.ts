@@ -1,0 +1,248 @@
+/**
+ * Content model + (de)serialization for the Gesso editor. Mirrors
+ * src/content/config.ts so what the editor writes is exactly what the build reads.
+ * Markdown files use YAML frontmatter; settings is plain JSON.
+ */
+import yaml from 'js-yaml';
+
+export const PATHS = {
+  artworks: 'src/content/artworks',
+  series: 'src/content/collections',
+  pages: 'src/content/pages',
+  posts: 'src/content/posts',
+  exhibitions: 'src/content/exhibitions',
+  testimonials: 'src/content/testimonials',
+  projects: 'src/content/projects',
+  settings: 'src/content/site/settings.json',
+  assets: 'src/assets',
+};
+
+export interface Artwork {
+  id: string; // filename stem
+  image: string; // frontmatter path, e.g. ../../assets/artworks/foo.jpg
+  /** Optional extra shots (frontmatter paths), shown on the piece's own page. */
+  images?: string[];
+  title: string;
+  year?: number;
+  medium?: string;
+  dimensions?: string;
+  status: 'available' | 'sold' | 'inquire' | 'nfs';
+  price?: string;
+  /** Optional external buy link (Stripe/Gumroad/Etsy/…). Shown as a Buy button
+   *  on available pieces when the site's `sellEnabled` setting is on. */
+  buyLink?: string;
+  /** Purchase options (sizes/editions/tiers), each with its own price + checkout link. */
+  options?: { label: string; price?: string; buyLink?: string; edition?: string; soldOut?: boolean }[];
+  alt: string;
+  collection?: string; // series id
+  /** Optional YouTube/Vimeo URL — plays on the artwork's own page. */
+  video?: string;
+  /** Optional audio: a SoundCloud/Bandcamp link or a direct audio file URL —
+   *  plays on the artwork's own page. */
+  audio?: string;
+  order: number;
+  featured: boolean;
+  /** Image is Glaze/Nightshade-protected — served untouched (no re-encoding). */
+  protected?: boolean;
+  body: string;
+}
+
+export interface Post {
+  id: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  excerpt?: string;
+  cover?: string;
+  draft: boolean;
+  body: string;
+}
+
+export interface Project {
+  id: string;
+  title: string;
+  summary?: string;
+  cover?: string;
+  role?: string;
+  client?: string;
+  year?: string;
+  tags: string[];
+  order: number;
+  featured: boolean;
+  draft: boolean;
+  body: string;
+}
+
+export interface Exhibition {
+  id: string;
+  title: string;
+  venue?: string;
+  location?: string;
+  startDate: string; // YYYY-MM-DD
+  endDate?: string;
+  url?: string;
+  description?: string;
+  /** Solo vs group — splits the auto CV exhibitions section. Unset = combined. */
+  kind?: 'solo' | 'group';
+  draft: boolean;
+}
+
+export interface Testimonial {
+  id: string;
+  quote: string;
+  author: string;
+  role?: string;
+  order: number;
+}
+
+export interface Series {
+  id: string;
+  title: string;
+  description?: string;
+  /** Short tagline under the title on the series page. */
+  lede?: string;
+  cover?: string;
+  /** Full-bleed intro header instead of a centered heading. Off by default. */
+  storyLayout?: boolean;
+  order: number;
+  body: string;
+}
+
+export interface AboutPage {
+  title: string;
+  portrait?: string;
+  statement?: string;
+  body: string;
+}
+export interface ContactPage {
+  title: string;
+  intro?: string;
+  email?: string;
+  formEnabled: boolean;
+  body: string;
+}
+export interface CvSection {
+  heading: string;
+  items: { year?: string; text: string }[];
+}
+export interface CvPage {
+  title: string;
+  cv: CvSection[];
+}
+export interface PressItem {
+  outlet: string;
+  title: string;
+  url?: string;
+  date?: string;
+  excerpt?: string;
+}
+export interface PressPage {
+  title: string;
+  press: PressItem[];
+}
+
+export interface Settings {
+  siteTitle: string;
+  tagline?: string;
+  logoText: string;
+  theme: string;
+  portfolioLayout: 'grid' | 'masonry';
+  columns: number;
+  motionDefault: 'full' | 'reduced';
+  rightClickProtect: boolean;
+  watermark: boolean;
+  watermarkText?: string;
+  /** AI-scraper shield: robots/ai.txt opt-out + noai meta + image rights tag. Off by default. */
+  protectFromAI?: boolean;
+  metaDescription?: string;
+  ogImage?: string;
+  socialLinks: { label: string; url: string }[];
+  /** "Support me" links (Ko-fi, Patreon, PayPal.me…) — shown as a footer block. */
+  supportLinks?: { label: string; url: string }[];
+  /** Optional /links "link in bio" page. Unlisted; off until linksEnabled. */
+  linksEnabled?: boolean;
+  linksDisplayName?: string;
+  linksBio?: string;
+  links?: { label: string; url: string; icon?: string; thumbnail?: string; featured?: boolean }[];
+  searchEnabled?: boolean;
+  /** Generate the CV's exhibitions sections from the Exhibitions content. Off by default. */
+  cvAutoExhibitions?: boolean;
+  /** Commissions page (toggled via design.pages.commissions). */
+  commissionsMode?: 'form' | 'vgen';
+  commissionsIntro?: string;
+  commissionsTerms?: string;
+  commissionsVgenUrl?: string;
+  /** Shop page (toggled via design.pages.shop): a pasted store embed. */
+  shopIntro?: string;
+  shopEmbed?: string;
+  cfAnalyticsToken?: string;
+  analyticsProvider?: 'none' | 'ga4' | 'plausible' | 'fathom' | 'umami' | 'goatcounter' | 'simpleanalytics' | 'matomo' | 'cloudflare';
+  analyticsId?: string;
+  analyticsHost?: string;
+  analyticsSnippet?: string;
+  sellEnabled?: boolean;
+  /** Site-wide "available for work" banner. Off by default. */
+  availableForWork?: boolean;
+  availableForWorkText?: string;
+  availableForWorkCta?: string;
+  newsletterEnabled?: boolean;
+  newsletterHeading?: string;
+  newsletterBlurb?: string;
+  newsletterProvider?: 'netlify' | 'buttondown' | 'mailchimp' | 'convertkit';
+  newsletterActionUrl?: string;
+  /** Ambient placements of the same signup, off by default. */
+  newsletterInFooter?: boolean;
+  newsletterOnWork?: boolean;
+  /** "Where to buy" outbound links. Page shows when pages.stockists is on. */
+  stockists?: { name: string; url: string; location?: string; note?: string }[];
+  customCss?: string;
+  customCode?: string;
+  /** Design tokens (theme). Opaque to the editor's basic settings; carried through
+   *  on save so the Look UI / wizard own it. See src/lib/design.ts. */
+  design?: Record<string, any>;
+}
+
+/** Split a markdown file into its frontmatter object + body. */
+export function parseFrontmatter(text: string): { data: Record<string, any>; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
+  if (!match) return { data: {}, body: text.trim() };
+  const data = (yaml.load(match[1]) as Record<string, any>) ?? {};
+  return { data, body: (match[2] ?? '').trim() };
+}
+
+/** Serialize frontmatter + body back to a markdown file. Drops empty values. */
+export function toMarkdown(data: Record<string, any>, body: string): string {
+  const clean: Record<string, any> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined || v === null || v === '') continue;
+    clean[k] = v;
+  }
+  const fm = yaml.dump(clean, { lineWidth: -1, quotingType: '"' }).trimEnd();
+  const text = body.trim();
+  return `---\n${fm}\n---\n${text ? `\n${text}\n` : '\n'}`;
+}
+
+export function toJson(value: unknown): string {
+  return JSON.stringify(value, null, 2) + '\n';
+}
+
+/** A URL-safe slug from a title, for filenames. */
+export function slugify(s: string): string {
+  return (
+    s
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'untitled'
+  );
+}
+
+/** Resolve a frontmatter image path (relative to a content folder) to a repo path. */
+export function resolveAssetPath(fromDir: string, rel: string): string {
+  const parts = (fromDir + '/' + rel).split('/');
+  const out: string[] = [];
+  for (const p of parts) {
+    if (p === '..') out.pop();
+    else if (p !== '.' && p !== '') out.push(p);
+  }
+  return out.join('/');
+}
