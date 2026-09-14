@@ -1,0 +1,22 @@
+---
+import GradientBlob from './GradientBlob';
+import ThemeToggle from './ThemeToggle';
+---
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand-mark" href="/" aria-label="Homepage">
+      <img class="logo-image logo-light" src="/images/Header_Logo_Black.svg" alt="Christopher Ionescu logo" />
+      <img class="logo-image logo-dark" src="/images/Header_Logo_White.svg" alt="Christopher Ionescu logo" />
+      <GradientBlob client:load />
+    </a>
+    <a class="header-name" href="/">
+      <span>Christopher</span>
+      <span>Ionescu</span>
+    </a>
+    <nav class="header-nav" aria-label="Primary navigation">
+      <a href="/about">About</a>
+      <a href="/contact">Contact</a>
+    </nav>
+    <div class="header-theme"><ThemeToggle client:load /></div>
+  </div>
+</header>

@@ -1,8 +1,0 @@
-{
-  "repo": "IonRevy/ionrevy.github.io",
-  "branch": "main",
-  "authBaseUrl": "https://auth.usegesso.com",
-  "host": "github-pages",
-  "formEndpoint": "",
-  "gessoVersion": "0.43.3"
-}

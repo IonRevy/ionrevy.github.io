@@ -1,0 +1,18 @@
+---
+import ThemeToggle from './ThemeToggle';
+---
+<footer class="site-footer">
+  <div class="footer-inner page-width">
+    <a class="brand-mark" href="/" aria-label="Homepage">
+      <img class="logo-image footer-logo logo-light" src="/images/Logo_Dark.svg" alt="Christopher Ionescu logo" />
+      <img class="logo-image footer-logo logo-dark" src="/images/Logo_Light.svg" alt="Christopher Ionescu logo" />
+    </a>
+    <nav class="footer-center" aria-label="Footer navigation">
+      <a href="/about">About</a>
+      <a href="/contact">Contact</a>
+      <a href="https://github.com/ionrevy" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </nav>
+<!--    <span class="footer-credit">© 2026 / selected work</span>  -->
+    <div class="footer-theme"><ThemeToggle client:load /></div>
+  </div>
+</footer>

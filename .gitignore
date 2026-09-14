@@ -1,29 +1,5 @@
-# build output
+node_modules/
 dist/
 .astro/
-
-# dependencies
-node_modules/
-
-# logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# environment
-.env
-.env.production
-
-# macOS
+.pnpm-store/
 .DS_Store
-
-# editor
-.vscode/
-.idea/
-
-# netlify
-.netlify/
-
-# agent notes (local living document)
-AGENTS.md
-CLAUDE.md

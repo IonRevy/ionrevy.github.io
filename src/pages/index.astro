@@ -1,46 +1,40 @@
 ---
-import { getEntry } from 'astro:content';
-import Base from '../layouts/Base.astro';
-import Gallery from '../components/Gallery.astro';
-import AboutIntro from '../components/AboutIntro.astro';
-import { withBase } from '../lib/href';
-
-const settings = (await getEntry('site', 'settings'))!.data;
-// The landing route renders both blocks; a root class (ez-home-work / ez-home-about,
-// set from design.home.landing) decides which one is visible — so the choice previews
-// live in the editor, and the hidden one still has a real URL (/work or /about).
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ProjectDirectory from '../components/ProjectDirectory';
 ---
-
-<Base pageDescription={settings.tagline} pageImage={withBase('/og/home.png')}>
-  <div class="ez-container">
-    <div class="ez-home-gallery">
-      <header class="ez-home-head ez-hero">
-        <div>
-          <h1>{settings.siteTitle}</h1>
-          {settings.tagline && <p class="ez-home-tagline">{settings.tagline}</p>}
-        </div>
-      </header>
-      <Gallery />
-    </div>
-
-    <div class="ez-home-about-intro">
-      <AboutIntro />
-    </div>
+<BaseLayout title="Your Name — Portfolio">
+  <div class="home-main">
+    <section class="intro page-width">
+      <span class="eyebrow">Independent designer_/></span>
+      <h1>Building Interest<br /><em>Designing Variation</em></h1>
+      <div class="intro-copy">
+        <p>A small collection of refinements.</p>
+        <span class="scroll-cue eyebrow">Scroll to explore</span>
+      </div>
+    </section>
+    <section class="projects-wrap page-width" aria-label="Selected projects">
+      <ProjectDirectory client:load />
+      <div class="project-stack">
+        <article class="project-panel meridia-panel" id="meridia">
+          <div class="project-art meridia-art">
+            <img class="meridia-image" src="/images/Meridia.png" alt="Meridia — a bright island world surrounded by blue water" />
+            <div class="meridia-overlay">
+              <span class="eyebrow project-number">01 /> 2026 — Present</span>
+              <h2 class="meridia-title">MERIDIA</h2>
+              <p>Procedural World Building.</p>
+            </div>
+            <span class="art-caption">world design / visual development</span>
+            <a class="meridia-gdd-link eyebrow" href="https://docs.google.com/document/d/1HFv1Jcyx-zZUzM5yysXpmnSQIIKYvH6CsFLlGJ_Ebrs/edit?usp=sharing" target="_blank" rel="noreferrer">Game Design Document ↗</a>
+          </div>
+        </article>
+        <article class="project-panel coming-soon-panel" id="coming-soon">
+          <div class="coming-soon-card">
+            <span class="eyebrow project-number">02 /> In progress</span>
+            <h2>Coming soon</h2>
+            <p>The next world is taking shape.</p>
+          </div>
+        </article>
+      </div>
+    </section>
   </div>
-</Base>
-
-<style>
-  .ez-home-head {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--ez-space-5);
-    flex-wrap: wrap;
-    margin-bottom: var(--ez-space-7);
-  }
-  .ez-home-tagline {
-    color: var(--ez-stone);
-    font-size: var(--ez-text-lg);
-    margin: 0;
-  }
-</style>
+</BaseLayout>

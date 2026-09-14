@@ -1,15 +1,10 @@
 ---
-import { getEntry } from 'astro:content';
-import Base from '../layouts/Base.astro';
-import AboutIntro from '../components/AboutIntro.astro';
-import { withBase } from '../lib/href';
-
-const page = await getEntry('pages', 'about');
-const data = page!.data;
+import BaseLayout from '../layouts/BaseLayout.astro';
 ---
-
-<Base pageTitle={data.title} pageDescription={data.statement} pageImage={withBase('/og/about.png')}>
-  <div class="ez-container ez-prose--wide">
-    <AboutIntro />
-  </div>
-</Base>
+<BaseLayout title="About — Your Name">
+  <section class="simple-page page-width">
+    <span class="eyebrow">A little about</span>
+    <h1 class="serif">Chris.</h1>
+    <p class="lede">I am a user first game and hardware designer focused on creating experiences that improve quality of life while making effort feel meaningful and rewarding. I specialize in game mechanics, economy balancing, and systems design, with a strong interest in understanding how small design decisions shape the overall player experience. Across both software and hardware, I aim to create intuitive and satisfying products that respect the user's time and make the work feel worth it.</p>
+  </section>
+</BaseLayout>
