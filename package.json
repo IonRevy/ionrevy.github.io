@@ -8,6 +8,11 @@
     "build": "astro build",
     "preview": "astro preview"
   },
+  "pnpm": {
+    "allowBuilds": {
+      "esbuild": true
+    }
+  },
   "dependencies": {
     "@astrojs/react": "latest",
     "astro": "latest",
