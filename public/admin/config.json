@@ -1,7 +1,8 @@
 {
-  "repo": "REPLACED_AT_PROVISION",
+  "repo": "IonRevy/ionrevy.github.io",
   "branch": "main",
   "authBaseUrl": "https://auth.usegesso.com",
-  "host": "netlify",
-  "formEndpoint": ""
+  "host": "github-pages",
+  "formEndpoint": "",
+  "gessoVersion": "0.43.3"
 }
