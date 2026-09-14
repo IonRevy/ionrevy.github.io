@@ -1,0 +1,7 @@
+{
+  "repo": "REPLACED_AT_PROVISION",
+  "branch": "main",
+  "authBaseUrl": "https://auth.usegesso.com",
+  "host": "netlify",
+  "formEndpoint": ""
+}

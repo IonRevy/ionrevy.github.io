@@ -1,0 +1,120 @@
+---
+/**
+ * Newsletter signup — captures emails through the site's form backend (Netlify Forms
+ * on Netlify; a FormSubmit endpoint on hosts without one, e.g. GitHub Pages).
+ * Submissions land in the artist's Netlify dashboard or inbox; they can wire it to
+ * Buttondown/Mailchimp via customCode if they want automation. Owning an audience
+ * list is the most durable thing an independent artist can do, so it's one toggle.
+ */
+import { hostConfig } from '../lib/host';
+
+interface Props {
+  heading?: string;
+  blurb?: string;
+  /** 'netlify' (built-in backend) or an external provider's hosted form. */
+  provider?: 'netlify' | 'buttondown' | 'mailchimp' | 'convertkit';
+  /** The provider's form action URL (required when provider isn't 'netlify'). */
+  actionUrl?: string;
+  /** Tighter styling for ambient placements (footer, work pages). */
+  compact?: boolean;
+  /** Unique id base so several signups can coexist on one page without clashing. */
+  formId?: string;
+}
+const { heading, blurb, provider = 'netlify', actionUrl, compact = false, formId = 'newsletter' } = Astro.props;
+const { useNetlifyForms, formEndpoint } = hostConfig();
+const emailId = `${formId}-email`;
+
+// Use an external provider only when one is chosen AND an action URL is present;
+// otherwise fall back to the built-in form backend (Netlify Forms / FormSubmit).
+const external = provider !== 'netlify' && !!actionUrl;
+// Each provider names its email field differently.
+const emailField =
+  provider === 'mailchimp' ? 'EMAIL' : provider === 'convertkit' ? 'email_address' : 'email';
+---
+
+<section class={`ez-newsletter${compact ? ' ez-newsletter--compact' : ''}`} aria-label="Newsletter signup">
+  <div class="ez-newsletter__inner">
+    <h2 class="ez-newsletter__title">{heading || 'Stay in the loop'}</h2>
+    {blurb && <p class="ez-newsletter__blurb">{blurb}</p>}
+    {external ? (
+      <form
+        method="POST"
+        action={actionUrl}
+        target="_blank"
+        class="ez-newsletter__form"
+      >
+        <label class="ez-visually-hidden" for={emailId}>Email address</label>
+        <input
+          class="ez-input ez-newsletter__email"
+          id={emailId}
+          type="email"
+          name={emailField}
+          placeholder="you@example.com"
+          autocomplete="email"
+          required
+        />
+        <button type="submit" class="ez-btn ez-btn--primary">Subscribe</button>
+      </form>
+    ) : (
+      <form
+        name="newsletter"
+        method="POST"
+        action={useNetlifyForms ? '/?subscribed=1' : formEndpoint}
+        class="ez-newsletter__form"
+        {...(useNetlifyForms ? { 'data-netlify': 'true', 'netlify-honeypot': 'bot-field' } : {})}
+      >
+        {useNetlifyForms ? (
+          <>
+            <input type="hidden" name="form-name" value="newsletter" />
+            <p class="ez-visually-hidden" aria-hidden="true">
+              <label>Do not fill this out: <input name="bot-field" /></label>
+            </p>
+          </>
+        ) : (
+          <>
+            <input type="hidden" name="_subject" value="New newsletter signup" />
+            <input type="hidden" name="_captcha" value="false" />
+            <input type="text" name="_honey" class="ez-visually-hidden" tabindex="-1" autocomplete="off" aria-hidden="true" />
+          </>
+        )}
+        <label class="ez-visually-hidden" for={emailId}>Email address</label>
+        <input
+          class="ez-input ez-newsletter__email"
+          id={emailId}
+          type="email"
+          name="email"
+          placeholder="you@example.com"
+          autocomplete="email"
+          required
+        />
+        <button type="submit" class="ez-btn ez-btn--primary">Subscribe</button>
+      </form>
+    )}
+  </div>
+</section>
+
+<style>
+  .ez-newsletter {
+    border-top: var(--ez-border-width) solid var(--ez-border);
+    margin-top: var(--ez-space-7);
+    padding-top: var(--ez-space-6);
+  }
+  .ez-newsletter__inner { max-width: 520px; }
+  .ez-newsletter__title { margin: 0 0 var(--ez-space-2); }
+  .ez-newsletter__blurb { color: var(--ez-stone); margin: 0 0 var(--ez-space-4); }
+  .ez-newsletter__form {
+    display: flex;
+    gap: var(--ez-space-3);
+    flex-wrap: wrap;
+  }
+  .ez-newsletter__email { flex: 1 1 16rem; }
+
+  /* Ambient placements (footer, work pages): quieter, no top rule/extra margin. */
+  .ez-newsletter--compact {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+  }
+  .ez-newsletter--compact .ez-newsletter__title { font-size: var(--ez-text-md, 1.05rem); }
+  .ez-newsletter--compact .ez-newsletter__inner { max-width: 28rem; }
+</style>

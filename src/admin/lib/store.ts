@@ -1,0 +1,609 @@
+/**
+ * High-level content operations for the Gesso editor: load and save artworks,
+ * series, pages, and settings through the GitHub client. Each save is one commit.
+ */
+import { GitHub, fileToBase64, type FileChange } from './github';
+import { mapPool } from './concurrency';
+import {
+  PATHS,
+  parseFrontmatter,
+  toMarkdown,
+  toJson,
+  slugify,
+  type Artwork,
+  type Series,
+  type Post,
+  type Project,
+  type Exhibition,
+  type Testimonial,
+  type AboutPage,
+  type ContactPage,
+  type CvPage,
+  type PressPage,
+  type Settings,
+} from './content';
+
+const ARTWORK_IMG_REL = '../../assets/artworks';
+const ARTWORK_IMG_DIR = `${PATHS.assets}/artworks`;
+
+// ---------- Shared collection helpers ----------
+
+/**
+ * Load every `.md` entry in a content directory, parse its frontmatter, map it to
+ * a typed record, and sort. One GitHub `listDir` plus a `getFile` per entry — the
+ * shared shape behind loadArtworks/Series/Posts/Exhibitions/Testimonials.
+ *
+ * The per-file reads run through a bounded pool (not unbounded `Promise.all`): a
+ * large portfolio would otherwise fire dozens of simultaneous requests, which both
+ * trips GitHub's secondary rate limits and stalls the editor on the slowest of a
+ * huge fan-out. Eight at a time keeps it fast without the burst.
+ */
+async function loadMarkdownDir<T>(
+  gh: GitHub,
+  dir: string,
+  map: (data: Record<string, any>, body: string, id: string) => T,
+  sort: (a: T, b: T) => number,
+): Promise<T[]> {
+  const entries = (await gh.listDir(dir)).filter((e) => e.name.endsWith('.md'));
+  const items = await mapPool(entries, 8, async (e) => {
+    const file = await gh.getFile(e.path);
+    const { data, body } = parseFrontmatter(file?.text ?? '');
+    return map(data, body, e.name.replace(/\.md$/, ''));
+  });
+  return items.sort(sort);
+}
+
+/** Delete one collection entry by id in a single commit. */
+function deleteEntry(gh: GitHub, dir: string, id: string, message: string): Promise<void> {
+  return gh.commit([{ path: `${dir}/${id}.md`, remove: true }], message);
+}
+
+// ---------- Artworks ----------
+
+export function loadArtworks(gh: GitHub): Promise<Artwork[]> {
+  return loadMarkdownDir<Artwork>(
+    gh,
+    PATHS.artworks,
+    (data, body, id) => ({
+      id,
+      image: data.image ?? '',
+      images: Array.isArray(data.images) ? data.images : [],
+      title: data.title ?? 'Untitled',
+      year: data.year,
+      medium: data.medium,
+      dimensions: data.dimensions,
+      status: data.status ?? 'available',
+      price: data.price,
+      buyLink: data.buyLink,
+      options: Array.isArray(data.options) ? data.options : [],
+      alt: data.alt ?? '',
+      collection: data.collection,
+      video: data.video,
+      audio: data.audio,
+      order: typeof data.order === 'number' ? data.order : 0,
+      featured: !!data.featured,
+      protected: !!data.protected,
+      body,
+    }),
+    (a, b) => a.order - b.order,
+  );
+}
+
+function artworkToMd(a: Artwork): string {
+  return toMarkdown(
+    {
+      image: a.image,
+      images: a.images?.length ? a.images : undefined,
+      title: a.title,
+      year: a.year,
+      medium: a.medium,
+      dimensions: a.dimensions,
+      status: a.status,
+      price: a.status === 'available' ? a.price : undefined,
+      buyLink: a.status === 'available' ? a.buyLink : undefined,
+      options: a.options?.length ? a.options : undefined,
+      alt: a.alt,
+      collection: a.collection,
+      video: a.video,
+      audio: a.audio,
+      order: a.order,
+      featured: a.featured,
+      protected: a.protected ? true : undefined,
+    },
+    a.body,
+  );
+}
+
+/** An ordered gallery entry: either an already-saved path or a freshly chosen file. */
+export type GalleryItem = { path?: string; file?: File };
+
+/**
+ * Save one artwork. `imageFile` (if set) replaces the cover; `gallery` is the
+ * ordered list of extra shots — existing ones keep their path, newly chosen files
+ * are uploaded. Cover + every new gallery image + the .md go in ONE commit, so the
+ * site rebuilds once.
+ */
+export async function saveArtwork(
+  gh: GitHub,
+  art: Artwork,
+  imageFile: File | null,
+  gallery: GalleryItem[],
+  isNew: boolean,
+): Promise<string> {
+  const id = isNew ? await uniqueId(gh, PATHS.artworks, slugify(art.title)) : art.id;
+  const changes: FileChange[] = [];
+
+  const upload = async (file: File): Promise<string> => {
+    const { rel, change } = await stageArtworkImage(id, file);
+    changes.push(change);
+    return rel;
+  };
+
+  if (imageFile) art.image = await upload(imageFile);
+
+  // Resolve the gallery in order: keep existing paths, upload new files.
+  const images: string[] = [];
+  for (const item of gallery) {
+    if (item.file) images.push(await upload(item.file));
+    else if (item.path) images.push(item.path);
+  }
+  art.images = images;
+
+  changes.push({ path: `${PATHS.artworks}/${id}.md`, content: artworkToMd({ ...art, id }) });
+  await gh.commit(changes, `${isNew ? 'Add' : 'Update'} artwork: ${art.title}`);
+  return id;
+}
+
+export async function deleteArtwork(gh: GitHub, art: Artwork): Promise<void> {
+  await gh.commit([{ path: `${PATHS.artworks}/${art.id}.md`, remove: true }], `Remove artwork: ${art.title}`);
+}
+
+/** Filename → a friendly title: "blue_study-02.jpg" → "Blue Study 02". */
+function titleFromFilename(name: string): string {
+  return (
+    name
+      .replace(/\.[^.]+$/, '')
+      .replace(/[-_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Untitled'
+  );
+}
+
+/** One staged piece in the bulk-add queue: an image plus its (editable) details. */
+export interface BulkDraft {
+  file: File;
+  title: string;
+  alt: string;
+  year?: number;
+  medium?: string;
+}
+
+/**
+ * Add many pieces at once in a SINGLE commit (so the site rebuilds once, not N
+ * times), each with the title/year/medium/alt the artist set in the staging
+ * queue. The biggest day-2 friction is adding work one-at-a-time; this removes it.
+ * Returns how many were added.
+ */
+export async function bulkAddArtworksDetailed(gh: GitHub, drafts: BulkDraft[]): Promise<number> {
+  if (!drafts.length) return 0;
+  const existing = new Set((await gh.listDir(PATHS.artworks)).map((e) => e.name.replace(/\.md$/, '')));
+  const startOrder = existing.size;
+  const changes: FileChange[] = [];
+
+  let i = 0;
+  for (const d of drafts) {
+    const title = d.title.trim() || titleFromFilename(d.file.name);
+    // Unique id across what's on disk AND what we're adding in this same batch.
+    let id = slugify(title);
+    if (existing.has(id)) {
+      let n = 2;
+      while (existing.has(`${id}-${n}`)) n++;
+      id = `${id}-${n}`;
+    }
+    existing.add(id);
+
+    const { rel, change } = await stageArtworkImage(id, d.file);
+    const art: Artwork = {
+      id,
+      image: rel,
+      title,
+      year: d.year,
+      medium: d.medium?.trim() || undefined,
+      status: 'available',
+      // Seed alt with the title so the schema's required field is satisfied; the
+      // artist should refine it, but a draft shouldn't fail the build.
+      alt: d.alt.trim() || title,
+      order: startOrder + i,
+      featured: false,
+      body: '',
+    };
+    changes.push(change);
+    changes.push({ path: `${PATHS.artworks}/${id}.md`, content: artworkToMd(art) });
+    i++;
+  }
+
+  await gh.commit(changes, `Add ${drafts.length} artwork${drafts.length > 1 ? 's' : ''}`);
+  return drafts.length;
+}
+
+/** Persist a new display order by rewriting each artwork's `order`. One commit. */
+export async function reorderArtworks(gh: GitHub, ordered: Artwork[]): Promise<void> {
+  const changes: FileChange[] = [];
+  ordered.forEach((a, i) => {
+    if (a.order !== i) {
+      a.order = i;
+      changes.push({ path: `${PATHS.artworks}/${a.id}.md`, content: artworkToMd(a) });
+    }
+  });
+  if (changes.length) await gh.commit(changes, 'Reorder artwork');
+}
+
+// ---------- Series ----------
+
+export function loadSeries(gh: GitHub): Promise<Series[]> {
+  return loadMarkdownDir<Series>(
+    gh,
+    PATHS.series,
+    (data, body, id) => ({
+      id,
+      title: data.title ?? 'Untitled',
+      description: data.description,
+      lede: data.lede,
+      cover: data.cover,
+      storyLayout: !!data.storyLayout,
+      order: typeof data.order === 'number' ? data.order : 0,
+      body,
+    }),
+    (a, b) => a.order - b.order,
+  );
+}
+
+export async function saveSeries(gh: GitHub, s: Series, isNew: boolean): Promise<string> {
+  const id = isNew ? await uniqueId(gh, PATHS.series, slugify(s.title)) : s.id;
+  const md = toMarkdown(
+    {
+      title: s.title,
+      description: s.description,
+      lede: s.lede,
+      cover: s.cover,
+      storyLayout: s.storyLayout ? true : undefined,
+      order: s.order,
+    },
+    s.body,
+  );
+  await gh.commit([{ path: `${PATHS.series}/${id}.md`, content: md }], `${isNew ? 'Add' : 'Update'} series: ${s.title}`);
+  return id;
+}
+
+export function deleteSeries(gh: GitHub, s: Series): Promise<void> {
+  return deleteEntry(gh, PATHS.series, s.id, `Remove series: ${s.title}`);
+}
+
+// ---------- Posts (news) ----------
+
+export function loadPosts(gh: GitHub): Promise<Post[]> {
+  return loadMarkdownDir<Post>(
+    gh,
+    PATHS.posts,
+    (data, body, id) => ({
+      id,
+      title: data.title ?? 'Untitled',
+      date: data.date ?? '',
+      excerpt: data.excerpt,
+      cover: data.cover,
+      draft: !!data.draft,
+      body,
+    }),
+    // Newest first.
+    (a, b) => (a.date < b.date ? 1 : -1),
+  );
+}
+
+export async function savePost(gh: GitHub, p: Post, isNew: boolean): Promise<string> {
+  const id = isNew ? await uniqueId(gh, PATHS.posts, slugify(p.title)) : p.id;
+  const md = toMarkdown(
+    { title: p.title, date: p.date, excerpt: p.excerpt, cover: p.cover, draft: p.draft },
+    p.body,
+  );
+  await gh.commit([{ path: `${PATHS.posts}/${id}.md`, content: md }], `${isNew ? 'Add' : 'Update'} post: ${p.title}`);
+  return id;
+}
+
+export function deletePost(gh: GitHub, p: Post): Promise<void> {
+  return deleteEntry(gh, PATHS.posts, p.id, `Remove post: ${p.title}`);
+}
+
+// ---------- Projects (case studies) ----------
+
+export function loadProjects(gh: GitHub): Promise<Project[]> {
+  return loadMarkdownDir<Project>(
+    gh,
+    PATHS.projects,
+    (data, body, id) => ({
+      id,
+      title: data.title ?? 'Untitled',
+      summary: data.summary,
+      cover: data.cover,
+      role: data.role,
+      client: data.client,
+      year: data.year != null ? String(data.year) : undefined,
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      order: typeof data.order === 'number' ? data.order : 0,
+      featured: !!data.featured,
+      draft: !!data.draft,
+      body,
+    }),
+    (a, b) => a.order - b.order,
+  );
+}
+
+export async function saveProject(gh: GitHub, p: Project, isNew: boolean): Promise<string> {
+  const id = isNew ? await uniqueId(gh, PATHS.projects, slugify(p.title)) : p.id;
+  const md = toMarkdown(
+    {
+      title: p.title,
+      summary: p.summary,
+      cover: p.cover,
+      role: p.role,
+      client: p.client,
+      year: p.year,
+      tags: p.tags.length ? p.tags : undefined,
+      order: p.order,
+      featured: p.featured ? true : undefined,
+      draft: p.draft ? true : undefined,
+    },
+    p.body,
+  );
+  await gh.commit([{ path: `${PATHS.projects}/${id}.md`, content: md }], `${isNew ? 'Add' : 'Update'} project: ${p.title}`);
+  return id;
+}
+
+export function deleteProject(gh: GitHub, p: Project): Promise<void> {
+  return deleteEntry(gh, PATHS.projects, p.id, `Remove project: ${p.title}`);
+}
+
+// ---------- Exhibitions (shows) ----------
+
+export function loadExhibitions(gh: GitHub): Promise<Exhibition[]> {
+  return loadMarkdownDir<Exhibition>(
+    gh,
+    PATHS.exhibitions,
+    (data, _body, id) => ({
+      id,
+      title: data.title ?? 'Untitled',
+      venue: data.venue,
+      location: data.location,
+      startDate: data.startDate ?? '',
+      endDate: data.endDate,
+      url: data.url,
+      description: data.description,
+      kind: data.kind === 'solo' || data.kind === 'group' ? data.kind : undefined,
+      draft: !!data.draft,
+    }),
+    // Most recent / soonest first by start date.
+    (a, b) => (a.startDate < b.startDate ? 1 : -1),
+  );
+}
+
+export async function saveExhibition(gh: GitHub, x: Exhibition, isNew: boolean): Promise<string> {
+  const id = isNew ? await uniqueId(gh, PATHS.exhibitions, slugify(x.title)) : x.id;
+  const md = toMarkdown(
+    {
+      title: x.title,
+      venue: x.venue,
+      location: x.location,
+      startDate: x.startDate,
+      endDate: x.endDate,
+      url: x.url,
+      description: x.description,
+      kind: x.kind,
+      draft: x.draft,
+    },
+    '',
+  );
+  await gh.commit([{ path: `${PATHS.exhibitions}/${id}.md`, content: md }], `${isNew ? 'Add' : 'Update'} exhibition: ${x.title}`);
+  return id;
+}
+
+export function deleteExhibition(gh: GitHub, x: Exhibition): Promise<void> {
+  return deleteEntry(gh, PATHS.exhibitions, x.id, `Remove exhibition: ${x.title}`);
+}
+
+// ---------- Testimonials (praise) ----------
+
+export function loadTestimonials(gh: GitHub): Promise<Testimonial[]> {
+  return loadMarkdownDir<Testimonial>(
+    gh,
+    PATHS.testimonials,
+    (data, _body, id) => ({
+      id,
+      quote: data.quote ?? '',
+      author: data.author ?? '',
+      role: data.role,
+      order: typeof data.order === 'number' ? data.order : 0,
+    }),
+    (a, b) => a.order - b.order,
+  );
+}
+
+export async function saveTestimonial(gh: GitHub, t: Testimonial, isNew: boolean): Promise<string> {
+  const id = isNew ? await uniqueId(gh, PATHS.testimonials, slugify(t.author || t.quote.slice(0, 24))) : t.id;
+  const md = toMarkdown(
+    { quote: t.quote, author: t.author, role: t.role, order: t.order },
+    '',
+  );
+  await gh.commit([{ path: `${PATHS.testimonials}/${id}.md`, content: md }], `${isNew ? 'Add' : 'Update'} testimonial: ${t.author}`);
+  return id;
+}
+
+export function deleteTestimonial(gh: GitHub, t: Testimonial): Promise<void> {
+  return deleteEntry(gh, PATHS.testimonials, t.id, `Remove testimonial: ${t.author}`);
+}
+
+// ---------- Pages ----------
+
+async function loadPage(gh: GitHub, name: string): Promise<{ data: Record<string, any>; body: string }> {
+  const file = await gh.getFile(`${PATHS.pages}/${name}.md`);
+  return parseFrontmatter(file?.text ?? '');
+}
+
+export async function loadAbout(gh: GitHub): Promise<AboutPage> {
+  const { data, body } = await loadPage(gh, 'about');
+  return { title: data.title ?? 'About', portrait: data.portrait, statement: data.statement, body };
+}
+export async function loadContact(gh: GitHub): Promise<ContactPage> {
+  const { data, body } = await loadPage(gh, 'contact');
+  return { title: data.title ?? 'Contact', intro: data.intro, email: data.email, formEnabled: data.formEnabled !== false, body };
+}
+export async function loadCv(gh: GitHub): Promise<CvPage> {
+  const { data } = await loadPage(gh, 'cv');
+  return { title: data.title ?? 'CV', cv: Array.isArray(data.cv) ? data.cv : [] };
+}
+export async function loadPress(gh: GitHub): Promise<PressPage> {
+  const { data } = await loadPage(gh, 'press');
+  return { title: data.title ?? 'Press', press: Array.isArray(data.press) ? data.press : [] };
+}
+
+export async function saveAbout(gh: GitHub, p: AboutPage): Promise<void> {
+  const md = toMarkdown({ title: p.title, portrait: p.portrait, statement: p.statement }, p.body);
+  await gh.commit([{ path: `${PATHS.pages}/about.md`, content: md }], 'Update About page');
+}
+export async function saveContact(gh: GitHub, p: ContactPage): Promise<void> {
+  const md = toMarkdown(
+    { title: p.title, intro: p.intro, email: p.email, formEnabled: p.formEnabled },
+    p.body,
+  );
+  await gh.commit([{ path: `${PATHS.pages}/contact.md`, content: md }], 'Update Contact page');
+}
+export async function saveCv(gh: GitHub, p: CvPage): Promise<void> {
+  const md = toMarkdown({ title: p.title, cv: p.cv }, '');
+  await gh.commit([{ path: `${PATHS.pages}/cv.md`, content: md }], 'Update CV page');
+}
+export async function savePress(gh: GitHub, p: PressPage): Promise<void> {
+  const md = toMarkdown({ title: p.title, press: p.press }, '');
+  await gh.commit([{ path: `${PATHS.pages}/press.md`, content: md }], 'Update Press page');
+}
+
+// ---------- Settings ----------
+
+export async function loadSettings(gh: GitHub): Promise<Settings> {
+  const file = await gh.getFile(PATHS.settings);
+  const data = file ? JSON.parse(file.text) : {};
+  return {
+    siteTitle: data.siteTitle ?? '',
+    tagline: data.tagline,
+    logoText: data.logoText ?? '',
+    theme: data.theme ?? 'default',
+    portfolioLayout: data.portfolioLayout ?? 'grid',
+    columns: data.columns ?? 3,
+    motionDefault: data.motionDefault ?? 'full',
+    rightClickProtect: !!data.rightClickProtect,
+    watermark: !!data.watermark,
+    watermarkText: data.watermarkText,
+    protectFromAI: !!data.protectFromAI,
+    metaDescription: data.metaDescription,
+    ogImage: data.ogImage,
+    socialLinks: Array.isArray(data.socialLinks) ? data.socialLinks : [],
+    supportLinks: Array.isArray(data.supportLinks) ? data.supportLinks : [],
+    linksEnabled: !!data.linksEnabled,
+    linksDisplayName: data.linksDisplayName,
+    linksBio: data.linksBio,
+    links: Array.isArray(data.links) ? data.links : [],
+    searchEnabled: !!data.searchEnabled,
+    cvAutoExhibitions: !!data.cvAutoExhibitions,
+    commissionsMode: data.commissionsMode === 'vgen' ? 'vgen' : 'form',
+    commissionsIntro: data.commissionsIntro,
+    commissionsTerms: data.commissionsTerms,
+    commissionsVgenUrl: data.commissionsVgenUrl,
+    shopIntro: data.shopIntro,
+    shopEmbed: data.shopEmbed,
+    cfAnalyticsToken: data.cfAnalyticsToken,
+    analyticsProvider: data.analyticsProvider ?? 'none',
+    analyticsId: data.analyticsId,
+    analyticsHost: data.analyticsHost,
+    analyticsSnippet: data.analyticsSnippet,
+    sellEnabled: !!data.sellEnabled,
+    availableForWork: !!data.availableForWork,
+    availableForWorkText: data.availableForWorkText,
+    availableForWorkCta: data.availableForWorkCta,
+    newsletterEnabled: !!data.newsletterEnabled,
+    newsletterHeading: data.newsletterHeading,
+    newsletterBlurb: data.newsletterBlurb,
+    newsletterProvider: data.newsletterProvider ?? 'netlify',
+    newsletterActionUrl: data.newsletterActionUrl,
+    newsletterInFooter: !!data.newsletterInFooter,
+    newsletterOnWork: !!data.newsletterOnWork,
+    stockists: Array.isArray(data.stockists) ? data.stockists : [],
+    customCss: data.customCss,
+    customCode: data.customCode,
+    design: data.design,
+  };
+}
+
+export async function saveSettings(gh: GitHub, s: Settings): Promise<void> {
+  // Read-merge-write: never drop keys the editor doesn't model. The basic
+  // Settings shape omits some schema fields (e.g. fontPairing/headingFont/
+  // bodyFont) and may not know about future additions, so we overlay only the
+  // *defined* values onto whatever is currently on disk. This also guards the
+  // design tokens (owned by the Look UI/wizard) from being clobbered on a plain
+  // settings save.
+  const existing = await gh.getFile(PATHS.settings);
+  let merged: Record<string, any> = {};
+  if (existing) {
+    try {
+      merged = JSON.parse(existing.text);
+    } catch {
+      /* corrupt/empty — fall back to a fresh object */
+    }
+  }
+  for (const [k, v] of Object.entries(s)) {
+    if (v !== undefined) merged[k] = v;
+  }
+  await gh.commit([{ path: PATHS.settings, content: toJson(merged) }], 'Update site settings');
+}
+
+// ---------- Asset uploads (logo, favicon) ----------
+
+/**
+ * Commit an uploaded image to public/assets and return its served path (e.g.
+ * /assets/logo-ab12cd.png). Stored under public/ so the site can reference it by
+ * URL directly (no astro:assets import needed for dynamic identity images).
+ */
+export async function uploadAsset(gh: GitHub, file: File, baseName: string): Promise<string> {
+  const ext = (file.name.split('.').pop() ?? 'png').toLowerCase();
+  const rel = `assets/${baseName}-${shortStamp()}.${ext}`;
+  await gh.commit(
+    [{ path: `public/${rel}`, content: await fileToBase64(file), encoding: 'base64' }],
+    `Upload ${baseName}`,
+  );
+  return `/${rel}`;
+}
+
+// ---------- helpers ----------
+
+function shortStamp(): string {
+  // Avoid Date.now collisions while keeping filenames tidy.
+  return Math.random().toString(36).slice(2, 8);
+}
+
+/**
+ * Stage an uploaded artwork image: pick a unique filename from the artwork id, and
+ * return both the site-relative `rel` path (for the .md's `image`) and the
+ * base64 `change` to commit under the assets dir.
+ */
+async function stageArtworkImage(id: string, file: File): Promise<{ rel: string; change: FileChange }> {
+  const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase();
+  const fname = `${id}-${shortStamp()}.${ext}`; // shortStamp() is random, so it's unique per call
+  return {
+    rel: `${ARTWORK_IMG_REL}/${fname}`,
+    change: { path: `${ARTWORK_IMG_DIR}/${fname}`, content: await fileToBase64(file), encoding: 'base64' },
+  };
+}
+
+async function uniqueId(gh: GitHub, dir: string, base: string): Promise<string> {
+  const existing = new Set((await gh.listDir(dir)).map((e) => e.name.replace(/\.md$/, '')));
+  if (!existing.has(base)) return base;
+  for (let i = 2; i < 50; i++) if (!existing.has(`${base}-${i}`)) return `${base}-${i}`;
+  return `${base}-${shortStamp()}`;
+}

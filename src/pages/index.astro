@@ -1,0 +1,46 @@
+---
+import { getEntry } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import Gallery from '../components/Gallery.astro';
+import AboutIntro from '../components/AboutIntro.astro';
+import { withBase } from '../lib/href';
+
+const settings = (await getEntry('site', 'settings'))!.data;
+// The landing route renders both blocks; a root class (ez-home-work / ez-home-about,
+// set from design.home.landing) decides which one is visible — so the choice previews
+// live in the editor, and the hidden one still has a real URL (/work or /about).
+---
+
+<Base pageDescription={settings.tagline} pageImage={withBase('/og/home.png')}>
+  <div class="ez-container">
+    <div class="ez-home-gallery">
+      <header class="ez-home-head ez-hero">
+        <div>
+          <h1>{settings.siteTitle}</h1>
+          {settings.tagline && <p class="ez-home-tagline">{settings.tagline}</p>}
+        </div>
+      </header>
+      <Gallery />
+    </div>
+
+    <div class="ez-home-about-intro">
+      <AboutIntro />
+    </div>
+  </div>
+</Base>
+
+<style>
+  .ez-home-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--ez-space-5);
+    flex-wrap: wrap;
+    margin-bottom: var(--ez-space-7);
+  }
+  .ez-home-tagline {
+    color: var(--ez-stone);
+    font-size: var(--ez-text-lg);
+    margin: 0;
+  }
+</style>

@@ -1,0 +1,19 @@
+{
+  "siteTitle": "Your portfolio",
+  "tagline": "",
+  "logoText": "Your name",
+  "theme": "default",
+  "fontPairing": "jost-hanken-grotesk",
+  "portfolioLayout": "masonry",
+  "columns": 3,
+  "motionDefault": "full",
+  "rightClickProtect": false,
+  "watermark": false,
+  "watermarkText": "",
+  "protectFromAI": false,
+  "newsletterInFooter": false,
+  "newsletterOnWork": false,
+  "ogImage": "/assets/og-default.jpg",
+  "metaDescription": "",
+  "socialLinks": []
+}
